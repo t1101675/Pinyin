@@ -11,6 +11,7 @@ A basic pinyin project in Python. The model is based on n_gram language model. C
 ## 3. Quick Start
 
 `pip3 install -r requirements.txt`
+
 `python3 pinyin --load model/2-gram-model.model`
 
 
