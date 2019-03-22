@@ -1,0 +1,6 @@
+/data/.*
+/data/*input*.txt
+/data/*output*.txt
+/data/*train*
+/data/sina_news_gbk
+/__pycache__
