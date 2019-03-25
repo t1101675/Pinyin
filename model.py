@@ -4,7 +4,7 @@ import json
 import tqdm
 
 class Model(object):
-    def __init__(self, p2cFile, allChFile, n_gram = 2, alpha = 0.9, beta = 0):
+    def __init__(self, p2cFile, allChFile, n_gram=2, alpha=0.9, beta=0, threshold=1):
         # n gram model
         self.n_gram = n_gram
         # pinyin to character
@@ -20,6 +20,8 @@ class Model(object):
         self.alpha = alpha
         # Laplacian soomth for 3-gram
         self.beta = beta
+        # threshold to cut low number items
+        self.threshold = threshold
 
     def __call__(self, seq):
         seqLen = len(seq)
@@ -66,6 +68,7 @@ class Model(object):
             for i in tqdm.tqdm(range(1, rawSingleChNum)):
                 if data[i - 1] in self.allCh and data[i] in self.allCh:
                     self.pTable[1][data[i - 1 : i + 1]] = self.pTable[1][data[i - 1 : i + 1]] + 1 if data[i - 1 : i + 1] in self.pTable[1] else 1
+        self.pTable[1] = self.cutItem(self.pTable[1], self.threshold)
 
         if self.n_gram >= 3:
             print("3_gram start")
@@ -73,6 +76,14 @@ class Model(object):
             for i in tqdm.tqdm(range(2, rawSingleChNum)):
                 if data[i - 2] in self.allCh and data[i - 1] in self.allCh and data[i] in self.allCh:
                     self.pTable[2][data[i - 2 : i + 1]] = self.pTable[2][data[i - 2 : i + 1]] + 1 if data[i - 2 : i + 1] in self.pTable[2] else 1
+        self.pTable[2] = self.cutItem(self.pTable[2], self.threshold)
+
+    def cutItem(self, dict, threshold):
+        dictCut = {}
+        for key, value in dict.items():
+            if value > threshold:
+                dictCut[key] = value
+        return dictCut
 
     def save(self, model_dir):
         path = os.path.join(model_dir, str(self.n_gram) + "-gram-model.model")
