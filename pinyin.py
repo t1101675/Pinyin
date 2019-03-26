@@ -30,7 +30,7 @@ def main():
     parser.add_argument("--threshold", action="store", default=1, type=int, help="number of items not larger than threshold will be cut")
     args = parser.parse_args()
 
-    pinyinModel = model.Model("./data/pinyin2ch.txt", "./data/all-ch.txt", args.n_gram, args.alpha, args.beta)
+    pinyinModel = model.Model("./data/pinyin2ch.txt", "./data/all-ch.txt", args.n_gram, args.alpha, args.beta, args.threshold)
     if args.train:
         print("processing data...")
         data = open(args.train, "r").read()

@@ -86,7 +86,7 @@ class Model(object):
         return dictCut
 
     def save(self, model_dir):
-        path = os.path.join(model_dir, str(self.n_gram) + "-gram-model.model")
+        path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut.model")
         f = open(path, "w")
         hyperInfo = {"numSingle": self.numSingle, "n_gram": self.n_gram}
         f.write(json.dumps(hyperInfo))
