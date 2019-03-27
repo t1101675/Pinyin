@@ -29,9 +29,10 @@ def main():
     parser.add_argument("--n_gram", action="store", default=2, type=int, help="use n_gram model")
     parser.add_argument("--save_dir", action="store", default="", help="the dir where the model been saved")
     parser.add_argument("--threshold", action="store", default=1, type=int, help="number of items not larger than threshold will be cut")
+    parser.add_argument("--dbYin", action="store_true", default=False, help="enable double yin")
     args = parser.parse_args()
 
-    pinyinModel = model.Model("./data/pinyin2ch.txt", "./data/all-ch.txt", args.n_gram, args.alpha, args.beta, args.threshold)
+    pinyinModel = model.Model("./data/pinyin2ch.txt", "./data/all-ch.txt", args)
     if args.train:
         print("processing data...")
         data = open(args.train, "r").read()

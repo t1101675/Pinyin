@@ -4,11 +4,14 @@ import json
 import tqdm
 import struct
 from pypinyin import pinyin, lazy_pinyin
+from string import digits
 
 class Model(object):
-    def __init__(self, p2cFile, allChFile, n_gram=2, alpha=0.9, beta=0, threshold=1, dbYin=True):
+    def __init__(self, p2cFile, allChFile, args):
         # n gram model
-        self.n_gram = n_gram
+        self.n_gram = args.n_gram
+        # enable double yin
+        self.dbYin = args.dbYin
         # all characters file
         self.allChFile = allChFile
         self.allCh = ""
@@ -24,13 +27,13 @@ class Model(object):
         # number of single characters
         self.numSingle = 0
         # Laplacian soomth for 2-gram
-        self.alpha = alpha
+        self.alpha = args.alpha
         # Laplacian soomth for 3-gram
-        self.beta = beta
+        self.beta = args.beta
         # threshold to cut low number items
-        self.threshold = threshold
-        # enable double yin
-        self.dbYin = dbYin
+        self.threshold = args.threshold
+        # special pinyin in pypinyin
+        self.convertT = {"lve": "lue", "nve": "nue"}
 
     def __call__(self, seq):
         seqLen = len(seq)
@@ -51,35 +54,42 @@ class Model(object):
             if max_p < A[seqLen - 1][i][0]:
                 max_i, max_p = i, A[seqLen - 1][i][0]
         # print(max_p)
-        chSeq = [seqChL[seqLen - 1][max_i]]
+        chSeq = [self.allCh[int(seqChL[seqLen - 1][max_i].split("/")[0])]]
         k = seqLen - 1
         while k >= 1:
             max_i = A[k][max_i][1]
             k -= 1
-            chSeq.append(seqChL[k][max_i])
+            chSeq.append(self.allCh[int(seqChL[k][max_i].split("/")[0])])
         return list(reversed(chSeq))
 
-    def preprocess(self, data):
+    def preprocess(self, rawData):
         """
         1. mark pinyin
         2. encode charactor
         """
-        rawSingleChNum = len(data)
+        data = ""
+        for ch in rawData:
+            if ch in self.allCh2idx:
+                data += ch
+
         if self.dbYin:
             pinyinList = lazy_pinyin(data)
-
         dataProcessed = []
-        for i in tqdm(range(rawSingleChNum)):
-            if data[i] in self.allCh2idx:
-                if self.dbYin:
-                    try:
-                        pinyinIdx = self.pinyin2idx[pinyinList[i]]:
-                    except(KeyError):
-                        print(pinyinList[i])
-                        exit()
-                    dataProcessed.append(str(allCh2idx[data[i]]) + "/" + str(pinyinIdx) + "/")
-                else:
-                    dataProcessed.append(str(allCh2idx[data[i]]) + "/")
+
+        for i in tqdm.tqdm(range(len(data))):
+            if self.dbYin:
+                try:
+                    if pinyinList[i] in self.convertT:
+                        self.pinyinIdx = self.pinyin2idx[self.convertT[pinyinList[i]]]
+                    else:
+                        self.pinyinIdx = self.pinyin2idx[pinyinList[i]]
+                except(KeyError):
+                    print(data[i], pinyinList[i])
+                    exit()
+                dataProcessed.append(str(self.allCh2idx[data[i]]) + "/" + str(self.pinyinIdx) + "/")
+            else:
+                dataProcessed.append(str(self.allCh2idx[data[i]]) + "/")
+
         return dataProcessed
 
     def train(self, data):
@@ -100,7 +110,7 @@ class Model(object):
             for i in tqdm.tqdm(range(1, pcdLen)):
                 ch = pcd[i - 1] + pcd[i]
                 self.pTable[1][ch] = self.pTable[1][ch] + 1 if ch in self.pTable[1] else 1
-        self.pTable[1] = self.cutItem(self.pTable[1], self.threshold)
+            self.pTable[1] = self.cutItem(self.pTable[1], self.threshold)
 
         if self.n_gram >= 3:
             print("3_gram start")
@@ -108,7 +118,7 @@ class Model(object):
             for i in tqdm.tqdm(range(2, pcdLen)):
                 ch = pcd[i - 2] + pcd[i - 1] + pcd[i]
                 self.pTable[2][ch] = self.pTable[2][ch] + 1 if ch in self.pTable[2] else 1
-        self.pTable[2] = self.cutItem(self.pTable[2], self.threshold)
+            self.pTable[2] = self.cutItem(self.pTable[2], self.threshold)
 
     def cutItem(self, dict, threshold):
         dictCut = {}
@@ -118,7 +128,10 @@ class Model(object):
         return dictCut
 
     def save(self, model_dir):
-        path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut-b.model")
+        if self.dbYin:
+            path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut-dy.model")
+        else:
+            path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut.model")
         f = open(path, "wb")
         # hyperinfo: 32b + 32b + 8b(numSingle, n_gram, dbYin)
         hyperInfo = struct.pack("ii?", self.numSingle, self.n_gram, self.dbYin)
@@ -127,16 +140,13 @@ class Model(object):
         sizes = b""
         for n in range(self.n_gram):
             for key, value in self.pTable[n].items():
-                tempL = [int(x) for x in key.split("/")][0:-1] #the last one is ""
+                tempL = [int(x) for x in key.split("/")[0:-1]] #the last one is ""
+                # print(tempL)
                 for x in tempL:
                     pBlock[n] += struct.pack("H", x)
                 pBlock[n] += struct.pack("H", value)
-            sizes += strcut.pack("i", len(self.pTable[n]))
+            sizes += struct.pack("i", len(self.pTable[n]))
 
-        # f.write(str(self.numSingle) + " " + str(self.n_gram))
-        # hyperInfo = {"numSingle": self.numSingle, "n_gram": self.n_gram}
-        # content = json.dumps(hyperInfo) + "\n" + json.dumps(self.pTable, ensure_ascii=False)
-        # bContent = struct.pack(str(len(content)) + "s", content.encode("utf-8"))
         f.write(hyperInfo + sizes + b"".join(pBlock))
         f.close()
 
@@ -144,16 +154,15 @@ class Model(object):
     def load(self, modelPath):
         f = open(modelPath, "rb")
         self.numSingle, self.n_gram, self.dbYin = struct.unpack("ii?", f.read(9))
-        sizes = [strcut.unpack("i", f.read(4))[0] for n in range(self.n_gram)]
+        sizes = [struct.unpack("i", f.read(4))[0] for n in range(self.n_gram)]
         chLen = 2 if self.dbYin else 1
-        for n in len(sizes):
+        for n in range(len(sizes)):
+            self.pTable.append({})
             for i in range(sizes[n]):
-                key = "/".join(struct.unpack(str(2 * chLen * (n + 1)) + "H", f.read(2 * chLen * (n + 1)))) + "/"
+                t = struct.unpack(str(chLen * (n + 1)) + "H", f.read(2 * chLen * (n + 1)))
+                key = "/".join([str(x) for x in t]) + "/"
                 value, = struct.unpack("H", f.read(2))
                 self.pTable[n][key] = value
-        # temp = f.readlines()
-        # hyperInfo = json.loads(temp[0])
-        # self.pTable = json.loads(temp[1])
         f.close()
 
     def loadPinyin2Ch(self):
@@ -161,13 +170,16 @@ class Model(object):
         idx = 0
         for line in f.readlines():
             tempList = line.strip().split(" ")
-            self.p2cDict[tempList[0]] = [str(self.allCh2idx[ch]) + "/" + str(idx) + "/" for ch in tempList[1:]]
+            if self.dbYin:
+                self.p2cDict[tempList[0]] = [str(self.allCh2idx[ch]) + "/" + str(idx) + "/" for ch in tempList[1:]]
+            else:
+                self.p2cDict[tempList[0]] = [str(self.allCh2idx[ch]) + "/" for ch in tempList[1:]]
             self.pinyin2idx[tempList[0]] = idx
             idx += 1
 
     def loadAllCh(self):
         self.allCh = open(self.allChFile, "r").read()
-        for i in len(self.allCh):
+        for i in range(len(self.allCh)):
             self.allCh2idx[self.allCh[i]] = i
 
     def dp2(self, A, seqChL):

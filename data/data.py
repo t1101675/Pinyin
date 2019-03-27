@@ -37,8 +37,8 @@ def countCh():
 
 def getSmallData():
     f = open("train-data.txt", "r")
-    f2 = open("train-data-small.txt", "w")
-    f2.write(f.read(1024000))
+    f2 = open("train-data-small-small.txt", "w")
+    f2.write(f.read(512000))
 
 # countCh()
 getSmallData()
