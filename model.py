@@ -137,10 +137,6 @@ class Model(object):
                     prob = self.alpha * prob2 + (1 - self.alpha) * prob1
                     if A[p][cur][0] < prob * A[p - 1][last][0]:
                         A[p][cur] = (prob * A[p - 1][last][0], last)
-                    # if seqChL[0][last] + seqChL[1][cur] == "清华":
-                    #     print("init prob1:", prob1, "init prob2:", prob2, A[1][cur][last], last, cur)
-                    # if seqChL[0][last] + seqChL[1][cur] == "氰化":
-                    #     print("init prob1:", prob1, "init prob2:", prob2, A[1][cur][last], last, cur)
 
     def dp3(self, A, seqChL):
         """3-gram dp"""
@@ -151,6 +147,8 @@ class Model(object):
             if seqChL[0][cur] in self.pTable[0]:
                 prob = self.pTable[0][seqChL[0][cur]] / self.numSingle
             A[0][cur] = (prob, 0)
+        if seqLen <= 1:
+            return
         # A3[p][cur][last], expand of A
         A3 = [ [0 for chCur in seqChL[0]] ] # place holder
         A3 += [ [ [ 0 for chLast in seqChL[i - 1]] for chCur in seqChL[i] ] for i in range(1, seqLen)]
@@ -164,17 +162,10 @@ class Model(object):
                         prob2 = self.pTable[1][seqChL[0][last1] + seqChL[1][cur]] / self.pTable[0][seqChL[0][last1]]
                 prob = (self.alpha + self.beta) * prob2 + (1 - self.alpha - self.beta) * prob1
                 A3[1][cur][last1] = prob * A[0][last1][0]
-                # if seqChL[0][last1] + seqChL[1][cur] == "清华":
-                #     print("init prob1:", prob1, "init prob2:", prob2, A3[1][cur][last1], last1, cur)
-                # if seqChL[0][last1] + seqChL[1][cur] == "氰化":
-                #     print("init prob1:", prob1, "init prob2:", prob2, A3[1][cur][last1], last1, cur)
 
         for p in range(2, seqLen):
-            # print("p len:", seqChL[p])
             for cur in range(len(seqChL[p])):
-                # print("p - 1 len:", seqChL[p - 1])
                 for last1 in range(len(seqChL[p - 1])):
-                    # print("p - 2 len:", seqChL[p - 2])
                     for last2 in range(len(seqChL[p - 2])):
                         prob1, prob2, prob3 = 0, 0, 0
                         if seqChL[p][cur] in self.pTable[0]:
@@ -187,7 +178,6 @@ class Model(object):
                                     #p(W_{i} | W_{i - 1}, W_{i - 2}) = count(W_{i - 2}W_{i - 1}W_{i}) / count(W_{i - 2}W_{i - 1})
                                     prob3 = self.pTable[2][seqChL[p - 2][last2] + seqChL[p - 1][last1] + seqChL[p][cur]] / self.pTable[1][seqChL[p - 2][last2] + seqChL[p - 1][last1]]
                         #p = beta * p(W_{i} | W_{i - 1}, W_{i - 2}) + alpha * p(W_{i} | W_{i - 1}) + (1 - alpha - beta) * p(W_{i})
-                        # print("prob1: ", prob1, "prob2: ", prob2, "prob3: ", prob3)
                         prob = self.beta * prob3 + self.alpha * prob2 + (1 - self.beta - self.alpha) * prob1
                         if A3[p][cur][last1] < prob * A3[p - 1][last1][last2]:
                             A3[p][cur][last1] = prob * A3[p - 1][last1][last2]
@@ -196,9 +186,5 @@ class Model(object):
         for p in range(1, seqLen):
             for cur in range(len(A3[p])):
                 for last1 in range(len(A3[p][cur])):
-                    # if seqChL[0][last1] + seqChL[1][cur] == "清华":
-                        # print("A3:", A3[p][cur][last1])
-                    # print(p, cur, last1)
                     if A3[p][cur][last1] > A[p][cur][0]:
                         A[p][cur] = (A3[p][cur][last1], last1)
-        # print(A3[1][3][19])

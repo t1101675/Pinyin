@@ -1,6 +1,7 @@
 import argparse
 import model
 import sys
+import pypinyin
 
 def readSeq(inputFile):
     f = open(inputFile, "r", encoding="utf-8-sig")
