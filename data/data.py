@@ -1,5 +1,7 @@
 import os
 import json
+from pypinyin import pinyin, lazy_pinyin
+
 def collectData():
     filedir = os.getcwd() + "/sina_news_gbk"
     filenames = os.listdir(filedir)
@@ -40,5 +42,17 @@ def getSmallData():
     f2 = open("train-data-small-small.txt", "w")
     f2.write(f.read(512000))
 
+def checkPypinyin():
+    f = open("./pinyin2ch.txt", "r", encoding="utf-8-sig")
+    L = [x.split(" ") for x in f.readlines()]
+    pyL = [item[0] for item in L]
+    for x in L:
+        for i in range(1, len(x)):
+            py = lazy_pinyin(x[i])
+            if py[0] not in pyL:
+                print(py[0], x[0], x[i])
+
+
 # countCh()
-getSmallData()
+# getSmallData()
+checkPypinyin()

@@ -3,6 +3,7 @@ import os
 import json
 import tqdm
 import struct
+import re
 from pypinyin import pinyin, lazy_pinyin
 from string import digits
 
@@ -11,7 +12,7 @@ class Model(object):
         # n gram model
         self.n_gram = args.n_gram
         # enable double yin
-        self.dbYin = args.dbYin
+        self.dbYin = not args.single_yin
         # all characters file
         self.allChFile = allChFile
         self.allCh = ""
@@ -33,7 +34,7 @@ class Model(object):
         # threshold to cut low number items
         self.threshold = args.threshold
         # special pinyin in pypinyin
-        self.convertT = {"lve": "lue", "nve": "nue"}
+        self.convertT = {"lve": "lue", "nve": "nue", "n": "en", "we": "wei", "sh": "shi", "f": "feng", "m": "mu"}
 
     def __call__(self, seq):
         seqLen = len(seq)
@@ -67,57 +68,69 @@ class Model(object):
         1. mark pinyin
         2. encode charactor
         """
-        data = ""
-        for ch in rawData:
-            if ch in self.allCh2idx:
-                data += ch
+        print("spliting data")
+        dataL = re.split("[，。“”、：！？（）.《》￥@/%]|[0-9]|[a-z]|[A-Z]", rawData)
+        print("removing characters not concerned")
+        data = []
+        for i in tqdm.tqdm(range(len(dataL))):
+            data.append("")
+            for ch in dataL[i]:
+                if ch in self.allCh2idx:
+                    data[-1] += ch
 
         if self.dbYin:
-            pinyinList = lazy_pinyin(data)
+            print("marking pinyin")
+            pinyinList = []
+            for i in tqdm.tqdm(range(len(data))):
+                pinyinList.append(lazy_pinyin(data[i]))
         dataProcessed = []
 
+        print("preprocessing")
         for i in tqdm.tqdm(range(len(data))):
-            if self.dbYin:
-                try:
-                    if pinyinList[i] in self.convertT:
-                        self.pinyinIdx = self.pinyin2idx[self.convertT[pinyinList[i]]]
-                    else:
-                        self.pinyinIdx = self.pinyin2idx[pinyinList[i]]
-                except(KeyError):
-                    print(data[i], pinyinList[i])
-                    exit()
-                dataProcessed.append(str(self.allCh2idx[data[i]]) + "/" + str(self.pinyinIdx) + "/")
-            else:
-                dataProcessed.append(str(self.allCh2idx[data[i]]) + "/")
-
+            tempProcessed = []
+            for j in range(len(data[i])):
+                if self.dbYin:
+                    try:
+                        if pinyinList[i][j] in self.convertT:
+                            pinyinIdx = self.pinyin2idx[self.convertT[pinyinList[i][j]]]
+                        else:
+                            pinyinIdx = self.pinyin2idx[pinyinList[i][j]]
+                    except(KeyError):
+                        print(data[i][j], pinyinList[i][j])
+                    tempProcessed.append(str(self.allCh2idx[data[i][j]]) + "/" + str(pinyinIdx) + "/")
+                else:
+                    tempProcessed.append(str(self.allCh2idx[data[i][j]]) + "/")
+            dataProcessed.append(tempProcessed)
         return dataProcessed
 
     def train(self, data):
-        print("preprocessing")
         pcd = self.preprocess(data) #processed data
         pcdLen = len(pcd)
         if self.n_gram >= 1:
             print("1_gram start")
             self.pTable.append({})
             for i in tqdm.tqdm(range(pcdLen)):
-                ch = pcd[i]
-                self.pTable[0][ch] = self.pTable[0][ch] + 1 if ch in self.pTable[0] else 1
-                self.numSingle += 1
+                for j in range(len(pcd[i])):
+                    ch = pcd[i][j]
+                    self.pTable[0][ch] = self.pTable[0][ch] + 1 if ch in self.pTable[0] else 1
+                    self.numSingle += 1
 
         if self.n_gram >= 2:
             print("2_gram start")
             self.pTable.append({})
-            for i in tqdm.tqdm(range(1, pcdLen)):
-                ch = pcd[i - 1] + pcd[i]
-                self.pTable[1][ch] = self.pTable[1][ch] + 1 if ch in self.pTable[1] else 1
+            for i in tqdm.tqdm(range(pcdLen)):
+                for j in range(1, len(pcd[i])):
+                    ch = pcd[i][j - 1] + pcd[i][j]
+                    self.pTable[1][ch] = self.pTable[1][ch] + 1 if ch in self.pTable[1] else 1
             self.pTable[1] = self.cutItem(self.pTable[1], self.threshold)
 
         if self.n_gram >= 3:
             print("3_gram start")
             self.pTable.append({})
-            for i in tqdm.tqdm(range(2, pcdLen)):
-                ch = pcd[i - 2] + pcd[i - 1] + pcd[i]
-                self.pTable[2][ch] = self.pTable[2][ch] + 1 if ch in self.pTable[2] else 1
+            for i in tqdm.tqdm(range(pcdLen)):
+                for j in range(2, len(pcd[i])):
+                    ch = pcd[i][j - 2] + pcd[i][j - 1] + pcd[i][j]
+                    self.pTable[2][ch] = self.pTable[2][ch] + 1 if ch in self.pTable[2] else 1
             self.pTable[2] = self.cutItem(self.pTable[2], self.threshold)
 
     def cutItem(self, dict, threshold):
@@ -128,24 +141,29 @@ class Model(object):
         return dictCut
 
     def save(self, model_dir):
+        print("saving model")
         if self.dbYin:
             path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut-dy.model")
         else:
             path = os.path.join(model_dir, str(self.n_gram) + "-gram-" + str(self.threshold) + "-cut.model")
         f = open(path, "wb")
         # hyperinfo: 32b + 32b + 8b(numSingle, n_gram, dbYin)
-        hyperInfo = struct.pack("ii?", self.numSingle, self.n_gram, self.dbYin)
+        hyperInfo = struct.pack("II?", self.numSingle, self.n_gram, self.dbYin)
         # n-gram block (32b + 32b) * n + 32b ((character, pinyin) * n, count)
-        pBlock = [b"" for x in range(self.n_gram)]
-        sizes = b""
+        
+        pBlock = [bytearray() for n in range(self.n_gram)]
+        sizes = bytearray()
         for n in range(self.n_gram):
-            for key, value in self.pTable[n].items():
+            print("saving for " + str(n + 1) + "_gram")
+            tempBlockItemList = []
+            for key, value in tqdm.tqdm(self.pTable[n].items()):
+                #key, value = self.pTable[n].items()[i]
                 tempL = [int(x) for x in key.split("/")[0:-1]] #the last one is ""
                 # print(tempL)
                 for x in tempL:
                     pBlock[n] += struct.pack("H", x)
-                pBlock[n] += struct.pack("H", value)
-            sizes += struct.pack("i", len(self.pTable[n]))
+                pBlock[n] += struct.pack("I", value)
+            sizes += struct.pack("I", len(self.pTable[n]))
 
         f.write(hyperInfo + sizes + b"".join(pBlock))
         f.close()
@@ -153,15 +171,20 @@ class Model(object):
 
     def load(self, modelPath):
         f = open(modelPath, "rb")
-        self.numSingle, self.n_gram, self.dbYin = struct.unpack("ii?", f.read(9))
-        sizes = [struct.unpack("i", f.read(4))[0] for n in range(self.n_gram)]
+        self.numSingle, self.n_gram, dbYin = struct.unpack("II?", f.read(9))
+
+        if not self.dbYin == dbYin:
+            print("The model file is for double yin but this model disabled it")
+            exit()
+
+        sizes = [struct.unpack("I", f.read(4))[0] for n in range(self.n_gram)]
         chLen = 2 if self.dbYin else 1
         for n in range(len(sizes)):
             self.pTable.append({})
             for i in range(sizes[n]):
                 t = struct.unpack(str(chLen * (n + 1)) + "H", f.read(2 * chLen * (n + 1)))
                 key = "/".join([str(x) for x in t]) + "/"
-                value, = struct.unpack("H", f.read(2))
+                value, = struct.unpack("I", f.read(4))
                 self.pTable[n][key] = value
         f.close()
 
