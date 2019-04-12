@@ -4,3 +4,4 @@
 /data/*train*
 /data/sina_news_gbk
 /__pycache__
+/test/*

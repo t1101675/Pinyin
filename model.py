@@ -4,6 +4,7 @@ import json
 import tqdm
 import struct
 import re
+import heapq
 from pypinyin import pinyin, lazy_pinyin
 from string import digits
 
@@ -33,6 +34,14 @@ class Model(object):
         self.beta = args.beta
         # threshold to cut low number items
         self.threshold = args.threshold
+        # threshold to cut low probability
+        self.p_threshold = args.p_threshold
+        # the length to begin cut last1
+        self.beginCut = args.beginCut
+        # number of last1 words with top probability
+        self.topNum = args.topNum
+        # test
+        self.test = args.testOut
         # special pinyin in pypinyin
         self.convertT = {"lve": "lue", "nve": "nue", "n": "en", "we": "wei", "sh": "shi", "f": "feng", "m": "mu"}
 
@@ -41,10 +50,9 @@ class Model(object):
         try:
             seqChL = [self.p2cDict[p] for p in seq]
         except(KeyError):
-            print("Invalid Pinyin")
-            return []
+            return ["invalid pinyin"]
 
-        A = [[(0, 0) for ch in L] for L in seqChL] #matrix for dp. every element: (probability, index of the character)
+        A = [[(0, 0, 0) for ch in L] for L in seqChL] #matrix for dp. every element: (probability, index of the character)
         if self.n_gram == 2:
             self.dp2(A, seqChL)
         elif self.n_gram == 3:
@@ -150,7 +158,7 @@ class Model(object):
         # hyperinfo: 32b + 32b + 8b(numSingle, n_gram, dbYin)
         hyperInfo = struct.pack("II?", self.numSingle, self.n_gram, self.dbYin)
         # n-gram block (32b + 32b) * n + 32b ((character, pinyin) * n, count)
-        
+
         pBlock = [bytearray() for n in range(self.n_gram)]
         sizes = bytearray()
         for n in range(self.n_gram):
@@ -213,7 +221,7 @@ class Model(object):
             prob = 0
             if seqChL[0][cur] in self.pTable[0]:
                 prob = self.pTable[0][seqChL[0][cur]] / self.numSingle
-            A[0][cur] = (prob, 0)
+            A[0][cur] = (prob, 0, cur)
         # dp: A[p][cur] = max{A[p - 1][last] * prob_{cur}{last} | for all last}
         for p in range(1, seqLen):
             for cur in range(len(seqChL[p])):
@@ -229,17 +237,20 @@ class Model(object):
 
                     prob = self.alpha * prob2 + (1 - self.alpha) * prob1
                     if A[p][cur][0] < prob * A[p - 1][last][0]:
-                        A[p][cur] = (prob * A[p - 1][last][0], last)
+                        A[p][cur] = (prob * A[p - 1][last][0], last, cur)
 
     def dp3(self, A, seqChL):
         """3-gram dp"""
         seqLen = len(seqChL)
+        topProbList = [[] for p in range(0, seqLen)]
         #init A
         for cur in range(0, len(A[0])):
             prob = 0
             if seqChL[0][cur] in self.pTable[0]:
                 prob = self.pTable[0][seqChL[0][cur]] / self.numSingle
-            A[0][cur] = (prob, 0)
+            A[0][cur] = (prob, 0, cur)
+        topProbList[0] = list(zip(*heapq.nlargest(self.topNum, A[0], key=lambda key: key[0])))[2]
+
         if seqLen <= 1:
             return
         # A3[p][cur][last], expand of A
@@ -255,11 +266,21 @@ class Model(object):
                         prob2 = self.pTable[1][seqChL[0][last1] + seqChL[1][cur]] / self.pTable[0][seqChL[0][last1]]
                 prob = (self.alpha + self.beta) * prob2 + (1 - self.alpha - self.beta) * prob1
                 A3[1][cur][last1] = prob * A[0][last1][0]
+                if A3[1][cur][last1] > A[1][cur][0]:
+                    A[1][cur] = (A3[1][cur][last1], last1, cur)
+        topProbList[1] = list(zip(*heapq.nlargest(self.topNum, A[1], key=lambda key: key[0])))[2]
 
         for p in range(2, seqLen):
+            if p > self.beginCut:
+                last1List = topProbList[p - 1]
+                last2List = topProbList[p - 2]
+            else:
+                last1List = range(len(seqChL[p - 1]))
+                last2List = range(len(seqChL[p - 2]))
+
             for cur in range(len(seqChL[p])):
-                for last1 in range(len(seqChL[p - 1])):
-                    for last2 in range(len(seqChL[p - 2])):
+                for last1 in last1List:
+                    for last2 in last2List:
                         prob1, prob2, prob3 = 0, 0, 0
                         if seqChL[p][cur] in self.pTable[0]:
                             #p(W_{i}) = count(W_{i}) / num_single
@@ -274,10 +295,19 @@ class Model(object):
                         prob = self.beta * prob3 + self.alpha * prob2 + (1 - self.beta - self.alpha) * prob1
                         if A3[p][cur][last1] < prob * A3[p - 1][last1][last2]:
                             A3[p][cur][last1] = prob * A3[p - 1][last1][last2]
-
-        #convert A3 to A
-        for p in range(1, seqLen):
-            for cur in range(len(A3[p])):
-                for last1 in range(len(A3[p][cur])):
                     if A3[p][cur][last1] > A[p][cur][0]:
-                        A[p][cur] = (A3[p][cur][last1], last1)
+                        A[p][cur] = (A3[p][cur][last1], last1, cur)
+            # print(A[p])
+            try:
+                topProbList[p] = list(zip(*heapq.nlargest(self.topNum, A[p], key=lambda key: key[0])))[2]
+            except(IndexError):
+                print(A[p])
+                heapq.nlargest(self.topNum, A[p], key=lambda key: key[0])
+                zip(*heapq.nlargest(self.topNum, A[p], key=lambda key: key[0]))
+                exit(0)
+        #convert A3 to A
+        # for p in range(1, seqLen):
+            # for cur in range(len(A3[p])):
+                # for last1 in range(len(A3[p][cur])):
+                    # if A3[p][cur][last1] > A[p][cur][0]:
+                        # A[p][cur] = (A3[p][cur][last1], last1)
