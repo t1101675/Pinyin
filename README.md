@@ -9,10 +9,11 @@ A basic pinyin project in Python. The model is based on n_gram language model. C
 + tqdm
 
 ## 3. Quick Start
-``
-pip3 install -r requirements.txt
-python3 pinyin --load model/2-gram-model.model
-``
+
+`pip3 install -r requirements.txt`
+
+`python3 pinyin --load model/2-gram-model.model`
+
 
 ## 4. Data
 The model provided is trained with sina_news in some year(forgot...)
