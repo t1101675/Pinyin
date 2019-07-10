@@ -1,5 +1,5 @@
 # Pinyin For Introduction to AI
-### by gyx
+### by gyx THUCST
 
 ## 1. Introduction
 A basic pinyin project in Python. The model is based on n_gram language model. Considering computing complexity and accuracy, 2_gram and 3_gram is implemented.
